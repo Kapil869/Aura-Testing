@@ -1,0 +1,24 @@
+# secrets and local state
+.env
+data/*
+!data/.gitkeep
+reports/*
+!reports/.gitkeep
+*.db
+*.sqlite3
+
+# python
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

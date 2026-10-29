@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>API Testing Dashboard</title>
+  <link rel="stylesheet" href="/static/css/styles.css">
+</head>
+<body>
+  <section id="login" class="login" hidden>
+    <form id="login-form" class="login-card" autocomplete="on">
+      <h1>API Testing Dashboard</h1>
+      <p class="muted">Sign in to run tests, inspect failures and watch response times.</p>
+      <label>Username <input id="login-user" name="username" autocomplete="username" required></label>
+      <label>Password <input id="login-pass" name="password" type="password" autocomplete="current-password" required></label>
+      <p id="login-error" class="error" role="alert" hidden></p>
+      <button class="btn primary" type="submit">Sign in</button>
+      <p class="muted small">First start? The generated admin password is printed in the server console and saved in <code>data/initial_admin_credentials.txt</code>.</p>
+    </form>
+  </section>
+
+  <div id="app" class="shell" hidden>
+    <aside id="sidebar" class="sidebar" aria-label="Main navigation">
+      <div class="brand"><span class="brand-mark" aria-hidden="true"></span><span>API Testing<br>Dashboard</span></div>
+      <nav id="nav"></nav>
+      <div class="sidebar-foot">
+        <span id="user-name" class="muted small"></span>
+        <button id="logout" class="btn ghost small">Sign out</button>
+      </div>
+    </aside>
+    <div class="content">
+      <header class="topbar">
+        <button id="menu-btn" class="btn ghost icon" aria-label="Toggle navigation" aria-controls="sidebar" aria-expanded="false">Menu</button>
+        <h1 id="view-title">Dashboard</h1>
+      </header>
+      <main id="view" tabindex="-1"></main>
+    </div>
+  </div>
+
+  <dialog id="detail" class="detail" aria-label="Run details"></dialog>
+  <div id="toasts" class="toasts" aria-live="polite"></div>
+  <script src="/static/js/app.js" defer></script>
+</body>
+</html>

@@ -1,0 +1,9 @@
+line-length = 140
+target-version = "py311"
+
+[lint]
+# Conservative rule set: syntax errors, pyflakes (unused imports/variables, undefined names)
+select = ["E4", "E7", "E9", "F"]
+
+[format]
+quote-style = "double"
