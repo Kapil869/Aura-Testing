@@ -14,16 +14,17 @@ from app.config import Settings
 from app.core.security import UrlBlocked, decrypt_headers, decrypt_secret, encrypt_secret
 from app.db import repository as repo
 from app.db.database import get_db
+from app.db.models import User
 from app.services.http_client import RequestFailed, send_request
 
 router = APIRouter(prefix="/api", tags=["workbench"], dependencies=[Depends(current_user)])
 
 
-def _resolve_url(db: Session, url: str, environment_id: int | None, secret_key: str) -> tuple[str, dict[str, str], bool]:
+def _resolve_url(db: Session, url: str, environment_id: int | None, secret_key: str, user_id: int) -> tuple[str, dict[str, str], bool]:
     """Join relative URLs with the environment base URL. Returns (url, env_headers, env_allows_external)."""
     if environment_id is None:
         return url, {}, False
-    env = repo.get_environment(db, environment_id)
+    env = repo.get_environment(db, environment_id, user_id)
     if not env:
         raise HTTPException(404, "Environment not found.")
     if url.startswith("/"):
@@ -49,8 +50,9 @@ def _execute(
     environment_id: int | None,
     authorized_external: bool,
     secret_key: str,
+    user_id: int,
 ) -> dict[str, Any]:
-    url, env_headers, env_external = _resolve_url(db, url, environment_id, secret_key)
+    url, env_headers, env_external = _resolve_url(db, url, environment_id, secret_key, user_id)
     merged = {**env_headers, **(headers or {})}
     try:
         return {
@@ -76,7 +78,9 @@ def _execute(
 
 
 @router.post("/workbench/execute")
-def execute(body: RequestIn, request: Request, db: Session = Depends(get_db), cfg: Settings = Depends(get_cfg)):
+def execute(
+    body: RequestIn, request: Request, db: Session = Depends(get_db), cfg: Settings = Depends(get_cfg), user: User = Depends(current_user)
+):
     return _execute(
         db,
         cfg,
@@ -90,12 +94,13 @@ def execute(body: RequestIn, request: Request, db: Session = Depends(get_db), cf
         environment_id=body.environment_id,
         authorized_external=body.authorized_external,
         secret_key=request.app.state.secret_key,
+        user_id=user.id,
     )
 
 
 @router.get("/requests")
-def list_requests(db: Session = Depends(get_db)):
-    return [ser_saved(r) for r in repo.list_saved_requests(db)]
+def list_requests(db: Session = Depends(get_db), user: User = Depends(current_user)):
+    return [ser_saved(r) for r in repo.list_saved_requests(db, user.id)]
 
 
 def _payload(body: SavedRequestIn, request: Request, existing=None) -> dict[str, Any]:
@@ -123,37 +128,37 @@ def _payload(body: SavedRequestIn, request: Request, existing=None) -> dict[str,
 
 
 @router.post("/requests", status_code=201)
-def create_request(body: SavedRequestIn, request: Request, db: Session = Depends(get_db)):
-    if body.environment_id and not repo.get_environment(db, body.environment_id):
+def create_request(body: SavedRequestIn, request: Request, db: Session = Depends(get_db), user: User = Depends(current_user)):
+    if body.environment_id and not repo.get_environment(db, body.environment_id, user.id):
         raise HTTPException(404, "Environment not found.")
-    obj = repo.save_request(db, None, _payload(body, request))
+    obj = repo.save_request(db, None, _payload(body, request), user.id)
     db.commit()
     return ser_saved(obj)
 
 
 @router.get("/requests/{req_id}")
-def get_request(req_id: int, db: Session = Depends(get_db)):
-    obj = repo.get_saved_request(db, req_id)
+def get_request(req_id: int, db: Session = Depends(get_db), user: User = Depends(current_user)):
+    obj = repo.get_saved_request(db, req_id, user.id)
     if not obj:
         raise HTTPException(404, "Saved request not found.")
     return ser_saved(obj)
 
 
 @router.put("/requests/{req_id}")
-def update_request(req_id: int, body: SavedRequestIn, request: Request, db: Session = Depends(get_db)):
-    obj = repo.get_saved_request(db, req_id)
+def update_request(req_id: int, body: SavedRequestIn, request: Request, db: Session = Depends(get_db), user: User = Depends(current_user)):
+    obj = repo.get_saved_request(db, req_id, user.id)
     if not obj:
         raise HTTPException(404, "Saved request not found.")
-    if body.environment_id and not repo.get_environment(db, body.environment_id):
+    if body.environment_id and not repo.get_environment(db, body.environment_id, user.id):
         raise HTTPException(404, "Environment not found.")
-    repo.save_request(db, obj, _payload(body, request, obj))
+    repo.save_request(db, obj, _payload(body, request, obj), user.id)
     db.commit()
     return ser_saved(obj)
 
 
 @router.delete("/requests/{req_id}", status_code=204)
-def delete_request(req_id: int, db: Session = Depends(get_db)):
-    obj = repo.get_saved_request(db, req_id)
+def delete_request(req_id: int, db: Session = Depends(get_db), user: User = Depends(current_user)):
+    obj = repo.get_saved_request(db, req_id, user.id)
     if not obj:
         raise HTTPException(404, "Saved request not found.")
     repo.delete_saved_request(db, obj)
@@ -162,9 +167,14 @@ def delete_request(req_id: int, db: Session = Depends(get_db)):
 
 @router.post("/requests/{req_id}/execute")
 def execute_saved(
-    req_id: int, request: Request, authorized_external: bool = False, db: Session = Depends(get_db), cfg: Settings = Depends(get_cfg)
+    req_id: int,
+    request: Request,
+    authorized_external: bool = False,
+    db: Session = Depends(get_db),
+    cfg: Settings = Depends(get_cfg),
+    user: User = Depends(current_user),
 ):
-    obj = repo.get_saved_request(db, req_id)
+    obj = repo.get_saved_request(db, req_id, user.id)
     if not obj:
         raise HTTPException(404, "Saved request not found.")
     secret = decrypt_secret(obj.auth_secret_enc, request.app.state.secret_key) if obj.auth_secret_enc else None
@@ -183,4 +193,5 @@ def execute_saved(
         environment_id=obj.environment_id,
         authorized_external=authorized_external,
         secret_key=request.app.state.secret_key,
+        user_id=user.id,
     )

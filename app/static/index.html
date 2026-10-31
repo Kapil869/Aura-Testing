@@ -15,7 +15,18 @@
       <label>Password <input id="login-pass" name="password" type="password" autocomplete="current-password" required></label>
       <p id="login-error" class="error" role="alert" hidden></p>
       <button class="btn primary" type="submit">Sign in</button>
+      <button id="show-register" class="btn ghost" type="button">Create an account</button>
       <p class="muted small">First start? The generated admin password is printed in the server console and saved in <code>data/initial_admin_credentials.txt</code>.</p>
+    </form>
+    <form id="register-form" class="login-card" autocomplete="on" hidden>
+      <h1>Create account</h1>
+      <p class="muted">Register as a normal user to keep your environments, requests and test history private.</p>
+      <label>Username <input id="register-user" name="username" autocomplete="username" required minlength="3" maxlength="80" pattern="[A-Za-z0-9][A-Za-z0-9_.-]{2,79}"></label>
+      <label>Password <input id="register-pass" name="password" type="password" autocomplete="new-password" required minlength="12"></label>
+      <label>Confirm password <input id="register-confirm" name="confirm_password" type="password" autocomplete="new-password" required></label>
+      <p id="register-error" class="error" role="alert" hidden></p>
+      <button class="btn primary" type="submit">Create account</button>
+      <button id="show-login" class="btn ghost" type="button">Back to sign in</button>
     </form>
   </section>
 

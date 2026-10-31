@@ -56,6 +56,10 @@ class Settings:
     secret_key: str
     admin_username: str
     admin_password: str
+    registration_enabled: bool
+    registration_min_password_length: int
+    registration_max_attempts: int
+    registration_window_seconds: int
     session_hours: int
     cookie_secure: bool
     login_max_attempts: int
@@ -69,6 +73,8 @@ class Settings:
     test_target_url: str
     max_concurrent_runs: int
     max_active_runs: int
+    run_max_attempts: int
+    run_window_seconds: int
     test_timeout_seconds: int
     test_retry_count: int
     perf_enabled: bool
@@ -93,22 +99,28 @@ def get_settings() -> Settings:
         secret_key=_text("SECRET_KEY"),
         admin_username=_text("ADMIN_USERNAME", "admin"),
         admin_password=_text("ADMIN_PASSWORD"),
+        registration_enabled=_bool("REGISTRATION_ENABLED", True),
+        registration_min_password_length=max(12, _int("REGISTRATION_MIN_PASSWORD_LENGTH", 12)),
+        registration_max_attempts=max(1, _int("REGISTRATION_MAX_ATTEMPTS", 5)),
+        registration_window_seconds=max(60, _int("REGISTRATION_WINDOW_SECONDS", 3600)),
         session_hours=max(1, _int("SESSION_HOURS", 8)),
         cookie_secure=_bool("COOKIE_SECURE", _text("APP_ENV", "development").lower() == "production"),
         login_max_attempts=max(1, _int("LOGIN_MAX_ATTEMPTS", 5)),
         login_window_seconds=max(10, _int("LOGIN_WINDOW_SECONDS", 300)),
         enable_demo_api=_bool("ENABLE_DEMO_API", True),
         demo_api_token=_text("DEMO_API_TOKEN", "demo-token-local"),
-        allow_local_targets=_bool("ALLOW_LOCAL_TARGETS", True),
+        allow_local_targets=_bool("ALLOW_LOCAL_TARGETS", _text("APP_ENV", "development").lower() != "production"),
         allow_private_targets=_bool("ALLOW_PRIVATE_NETWORK_TARGETS", False),
         allow_external_targets=_bool("ALLOW_EXTERNAL_TARGETS", False),
         external_allowlist=_list("EXTERNAL_TARGET_ALLOWLIST"),
         test_target_url=_text("TEST_TARGET_URL").rstrip("/"),
         max_concurrent_runs=max(1, min(4, _int("MAX_CONCURRENT_RUNS", 1))),
         max_active_runs=max(1, min(20, _int("MAX_ACTIVE_RUNS", 5))),
+        run_max_attempts=max(1, _int("RUN_MAX_ATTEMPTS", 30)),
+        run_window_seconds=max(10, _int("RUN_WINDOW_SECONDS", 60)),
         test_timeout_seconds=max(10, min(1800, _int("TEST_TIMEOUT_SECONDS", 180))),
         test_retry_count=max(0, min(5, _int("TEST_RETRY_COUNT", 2))),
-        perf_enabled=_bool("PERF_TESTING_ENABLED", True),
+        perf_enabled=_bool("PERF_TESTING_ENABLED", _text("APP_ENV", "development").lower() != "production"),
         perf_max_requests=max(1, min(5000, _int("PERF_MAX_REQUESTS", 500))),
         perf_max_concurrency=max(1, min(50, _int("PERF_MAX_CONCURRENCY", 20))),
         perf_max_duration_seconds=max(5, min(300, _int("PERF_MAX_DURATION_SECONDS", 60))),

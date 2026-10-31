@@ -14,7 +14,7 @@ A self-hosted QA automation platform: run PyTest API suites from a dark web dash
 | Execution engine | Allow-listed suites only, bounded thread pool, queue limit, per-run timeout, preflight retries, history and failure details in SQLite |
 | Reports and analytics | HTML/JSON/CSV downloads, run comparison, p50/p95/p99 (shown only with enough samples), flaky detection |
 | Performance | Bounded concurrent load tests with throughput, error rate, latency percentiles, hard safety limits |
-| Security | Login, scrypt password hashing, signed HttpOnly session cookie, CSRF header, login rate limit, SSRF policy, secret redaction, no arbitrary command execution |
+| Security | Registration with normal-user accounts, owner-scoped data, scrypt password hashing, signed HttpOnly session cookie, CSRF header, rate limits, SSRF policy, secret redaction, no arbitrary command execution |
 | AI-assisted QA | Failure explanation (facts vs hypotheses), test-case drafts from plain English, missing-coverage hints, flaky analysis, saved history; rules-based fallback with no API key |
 
 ## Quick start on Windows (VS Code)
@@ -108,12 +108,15 @@ Restart the server. Any OpenAI-compatible `/chat/completions` endpoint works. Be
 * Generated pytest drafts are built locally from validated case data and displayed as text. The application never executes AI output.
 * Every analysis is stored in the `ai_analyses` table and visible under **AI assistant > History**.
 
-## Security model and limitations
+## Multi-user deployment and security model
 
-* **Authentication:** one admin user, scrypt-hashed password, HMAC-signed `HttpOnly; SameSite=Strict` session cookie, CSRF header required on state-changing calls, login attempts rate-limited (in memory, per IP).
+* **Accounts:** the configured bootstrap account is the only admin. Public registration never accepts a role and creates normal users only. Environments, saved requests, test/performance runs, AI history, results and reports are scoped to the logged-in owner.
+* **Deployment database:** use a persistent PostgreSQL `DATABASE_URL` in production. SQLite is retained for local development and is not appropriate for ephemeral/container-only storage.
+* **Authentication:** scrypt-hashed passwords, HMAC-signed `HttpOnly; SameSite=Strict` session cookie, CSRF header required on state-changing calls, and in-memory per-IP login/registration plus per-user test-execution throttling. Terminate TLS at the reverse proxy and set `COOKIE_SECURE=true`.
 * **No arbitrary execution:** the UI only chooses a suite key from a fixed list; the pytest command line is built from constants and the test process receives a minimal environment (no admin password, secret key or AI key).
 * **SSRF policy:** URLs must be http/https without embedded credentials. Hosts are resolved and every address is classified; link-local/metadata, multicast and reserved addresses are always blocked; loopback and private ranges follow the flags above; public hosts need `ALLOW_EXTERNAL_TARGETS=true`, the hostname in the allowlist (if set) **and** the per-request "I am authorised" confirmation. Redirects are followed manually (max 3) and re-validated at every hop.
 * **Secrets:** saved credentials and sensitive environment-header values are Fernet-encrypted with a key derived from `SECRET_KEY` and never returned by the API. Existing plaintext environment headers are upgraded at startup. Logs, reports, stored output and AI input are redacted.
+* **Performance testing:** disabled by default in production; keep strict request, concurrency and duration limits if enabled.
 * **Cookies:** production defaults to secure session cookies; set `COOKIE_SECURE=false` only for local HTTP development.
 * **Known limitations:** DNS rebinding between the check and the connection is not fully eliminated (the connection re-resolves); the session is a single shared admin account; rate limiting and run queue state are per process (run one worker); `/demo/*` is unauthenticated by design, so keep the default `127.0.0.1` bind and set `ENABLE_DEMO_API=false` if you expose the server; HTTPS is not terminated by the app (use a reverse proxy and `COOKIE_SECURE=true`). Do not expose this tool to the internet.
 * Never share your `.env`, `data/` folder or `data/.secret_key`.

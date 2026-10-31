@@ -11,6 +11,7 @@ from app.config import Settings
 from app.core.security import UrlBlocked
 from app.db import repository as repo
 from app.db.database import get_db
+from app.db.models import User
 from app.services.perf_service import PerfBusy, run_load_test
 
 router = APIRouter(prefix="/api/perf", tags=["performance"], dependencies=[Depends(current_user)])
@@ -28,7 +29,7 @@ def limits(cfg: Settings = Depends(get_cfg)):
 
 
 @router.post("/run", status_code=201)
-def run(body: PerfIn, db: Session = Depends(get_db), cfg: Settings = Depends(get_cfg)):
+def run(body: PerfIn, db: Session = Depends(get_db), cfg: Settings = Depends(get_cfg), user: User = Depends(current_user)):
     if not cfg.perf_enabled:
         raise HTTPException(403, "Performance testing is disabled (PERF_TESTING_ENABLED=false).")
     if body.total_requests > cfg.perf_max_requests:
@@ -37,7 +38,7 @@ def run(body: PerfIn, db: Session = Depends(get_db), cfg: Settings = Depends(get
         raise HTTPException(422, f"concurrency exceeds the configured limit of {cfg.perf_max_concurrency}.")
     url, external_ok = body.url, body.authorized_external
     if body.environment_id:
-        env = repo.get_environment(db, body.environment_id)
+        env = repo.get_environment(db, body.environment_id, user.id)
         if not env:
             raise HTTPException(404, "Environment not found.")
         if url.startswith("/"):
@@ -62,6 +63,7 @@ def run(body: PerfIn, db: Session = Depends(get_db), cfg: Settings = Depends(get
         raise HTTPException(429, str(exc))
     perf = repo.create_perf_run(
         db,
+        user.id,
         target_url=url,
         method=body.method,
         total_requests=body.total_requests,
@@ -82,13 +84,13 @@ def run(body: PerfIn, db: Session = Depends(get_db), cfg: Settings = Depends(get
 
 
 @router.get("/runs")
-def list_runs(db: Session = Depends(get_db)):
-    return [ser_perf(p) for p in repo.list_perf_runs(db, 30)]
+def list_runs(db: Session = Depends(get_db), user: User = Depends(current_user)):
+    return [ser_perf(p) for p in repo.list_perf_runs(db, user.id, 30)]
 
 
 @router.get("/runs/{perf_id}")
-def get_run(perf_id: int, db: Session = Depends(get_db)):
-    perf = repo.get_perf_run(db, perf_id)
+def get_run(perf_id: int, db: Session = Depends(get_db), user: User = Depends(current_user)):
+    perf = repo.get_perf_run(db, perf_id, user.id)
     if not perf:
         raise HTTPException(404, "Performance run not found.")
     return ser_perf(perf)

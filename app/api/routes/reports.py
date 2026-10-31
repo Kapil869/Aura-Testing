@@ -9,6 +9,7 @@ from app.api.deps import current_user
 from app.api.schemas import ser_run
 from app.db import repository as repo
 from app.db.database import get_db
+from app.db.models import User
 from app.services import report_service as rs
 
 router = APIRouter(prefix="/api/reports", tags=["reports"], dependencies=[Depends(current_user)])
@@ -29,8 +30,10 @@ def _download(content: str, fmt: str, filename: str) -> Response:
 
 
 @router.get("/runs/{run_id}")
-def run_report(run_id: int, format: Literal["html", "json", "csv"] = "html", db: Session = Depends(get_db)):
-    run = repo.get_run(db, run_id)
+def run_report(
+    run_id: int, format: Literal["html", "json", "csv"] = "html", db: Session = Depends(get_db), user: User = Depends(current_user)
+):
+    run = repo.get_run(db, run_id, user.id)
     if not run:
         raise HTTPException(404, "Run not found.")
     run_dict = ser_run(run, with_results=True)
@@ -41,8 +44,13 @@ def run_report(run_id: int, format: Literal["html", "json", "csv"] = "html", db:
 
 
 @router.get("/history")
-def history_report(format: Literal["json", "csv"] = "csv", limit: int = Query(200, ge=1, le=1000), db: Session = Depends(get_db)):
-    items, _ = repo.list_runs(db, limit=limit)
+def history_report(
+    format: Literal["json", "csv"] = "csv",
+    limit: int = Query(200, ge=1, le=1000),
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+):
+    items, _ = repo.list_runs(db, user.id, limit=limit)
     runs = [ser_run(r) for r in items]
     body = rs.history_to_csv(runs) if format == "csv" else rs.to_json({"runs": runs})
     return _download(body, format, "run-history")

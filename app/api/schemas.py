@@ -18,6 +18,19 @@ class LoginIn(BaseModel):
     password: str = Field(min_length=1, max_length=200)
 
 
+class RegisterIn(BaseModel):
+    username: str = Field(min_length=3, max_length=80, pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{2,79}$")
+    password: str = Field(min_length=12, max_length=200)
+    confirm_password: str = Field(min_length=1, max_length=200)
+
+    @field_validator("confirm_password")
+    @classmethod
+    def _passwords_match(cls, value: str, info):
+        if info.data.get("password") is not None and value != info.data["password"]:
+            raise ValueError("Passwords do not match.")
+        return value
+
+
 class AuthIn(BaseModel):
     type: Literal["none", "bearer", "basic", "api_key"] = "none"
     username: str = Field(default="", max_length=200)

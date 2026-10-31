@@ -24,8 +24,8 @@ def get_user(db: Session, username: str) -> m.User | None:
     return db.scalar(select(m.User).where(m.User.username == username))
 
 
-def create_user(db: Session, username: str, password_hash: str) -> m.User:
-    user = m.User(username=username, password_hash=password_hash)
+def create_user(db: Session, username: str, password_hash: str, role: str = "user") -> m.User:
+    user = m.User(username=username, password_hash=password_hash, role=role)
     db.add(user)
     db.flush()
     return user
@@ -35,21 +35,34 @@ def count_users(db: Session) -> int:
     return db.scalar(select(func.count(m.User.id))) or 0
 
 
+def migrate_legacy_ownership(db: Session, admin_username: str) -> m.User:
+    """Make the configured admin the owner of rows created before multi-user support."""
+    admin = get_user(db, admin_username)
+    if admin is None:
+        raise ValueError("Configured admin user was not created before ownership migration.")
+    admin.role = "admin"
+    for model in (m.Environment, m.SavedRequest, m.TestRun, m.PerfRun, m.AIAnalysis):
+        db.query(model).filter(model.user_id.is_(None)).update({"user_id": admin.id}, synchronize_session=False)
+    db.query(m.User).filter(m.User.id != admin.id).update({"role": "user"}, synchronize_session=False)
+    db.flush()
+    return admin
+
+
 # ----------------------------- environments --------------------------------
-def list_environments(db: Session) -> Sequence[m.Environment]:
-    return db.scalars(select(m.Environment).order_by(m.Environment.name)).all()
+def list_environments(db: Session, user_id: int) -> Sequence[m.Environment]:
+    return db.scalars(select(m.Environment).where(m.Environment.user_id == user_id).order_by(m.Environment.name)).all()
 
 
-def get_environment(db: Session, env_id: int) -> m.Environment | None:
-    return db.get(m.Environment, env_id)
+def get_environment(db: Session, env_id: int, user_id: int) -> m.Environment | None:
+    return db.scalar(select(m.Environment).where(m.Environment.id == env_id, m.Environment.user_id == user_id))
 
 
-def get_environment_by_name(db: Session, name: str) -> m.Environment | None:
-    return db.scalar(select(m.Environment).where(m.Environment.name == name))
+def get_environment_by_name(db: Session, name: str, user_id: int) -> m.Environment | None:
+    return db.scalar(select(m.Environment).where(m.Environment.name == name, m.Environment.user_id == user_id))
 
 
-def save_environment(db: Session, env: m.Environment | None, data: dict[str, Any], secret_key: str) -> m.Environment:
-    env = env or m.Environment()
+def save_environment(db: Session, env: m.Environment | None, data: dict[str, Any], secret_key: str, user_id: int) -> m.Environment:
+    env = env or m.Environment(user_id=user_id)
     env.name = data["name"]
     env.base_url = data["base_url"].rstrip("/")
     env.description = data.get("description", "")
@@ -82,16 +95,16 @@ def encrypt_legacy_environment_headers(db: Session, secret_key: str) -> int:
 
 
 # ----------------------------- saved requests ------------------------------
-def list_saved_requests(db: Session) -> Sequence[m.SavedRequest]:
-    return db.scalars(select(m.SavedRequest).order_by(m.SavedRequest.name)).all()
+def list_saved_requests(db: Session, user_id: int) -> Sequence[m.SavedRequest]:
+    return db.scalars(select(m.SavedRequest).where(m.SavedRequest.user_id == user_id).order_by(m.SavedRequest.name)).all()
 
 
-def get_saved_request(db: Session, req_id: int) -> m.SavedRequest | None:
-    return db.get(m.SavedRequest, req_id)
+def get_saved_request(db: Session, req_id: int, user_id: int) -> m.SavedRequest | None:
+    return db.scalar(select(m.SavedRequest).where(m.SavedRequest.id == req_id, m.SavedRequest.user_id == user_id))
 
 
-def save_request(db: Session, obj: m.SavedRequest | None, data: dict[str, Any]) -> m.SavedRequest:
-    obj = obj or m.SavedRequest()
+def save_request(db: Session, obj: m.SavedRequest | None, data: dict[str, Any], user_id: int) -> m.SavedRequest:
+    obj = obj or m.SavedRequest(user_id=user_id)
     obj.name = data["name"]
     obj.method = data["method"]
     obj.url = data["url"]
@@ -116,19 +129,27 @@ def delete_saved_request(db: Session, obj: m.SavedRequest) -> None:
 
 
 # ----------------------------- test runs -----------------------------------
-def create_run(db: Session, **fields: Any) -> m.TestRun:
+def create_run(db: Session, user_id: int, **fields: Any) -> m.TestRun:
+    fields["user_id"] = user_id
     run = m.TestRun(**fields)
     db.add(run)
     db.flush()
     return run
 
 
-def get_run(db: Session, run_id: int) -> m.TestRun | None:
+def get_run(db: Session, run_id: int, user_id: int) -> m.TestRun | None:
+    return db.scalar(select(m.TestRun).where(m.TestRun.id == run_id, m.TestRun.user_id == user_id))
+
+
+def get_run_for_worker(db: Session, run_id: int) -> m.TestRun | None:
     return db.get(m.TestRun, run_id)
 
 
-def count_active_runs(db: Session) -> int:
-    return db.scalar(select(func.count(m.TestRun.id)).where(m.TestRun.status.in_(("queued", "running")))) or 0
+def count_active_runs(db: Session, user_id: int | None = None) -> int:
+    stmt = select(func.count(m.TestRun.id)).where(m.TestRun.status.in_(("queued", "running")))
+    if user_id is not None:
+        stmt = stmt.where(m.TestRun.user_id == user_id)
+    return db.scalar(stmt) or 0
 
 
 def mark_interrupted_runs(db: Session) -> int:
@@ -152,6 +173,7 @@ _SORTS = {
 
 def list_runs(
     db: Session,
+    user_id: int,
     *,
     q: str | None = None,
     status: str | None = None,
@@ -163,7 +185,7 @@ def list_runs(
     limit: int = 25,
     offset: int = 0,
 ) -> tuple[Sequence[m.TestRun], int]:
-    stmt = select(m.TestRun)
+    stmt = select(m.TestRun).where(m.TestRun.user_id == user_id)
     if q:
         like = f"%{q}%"
         stmt = stmt.where(or_(m.TestRun.suite.ilike(like), m.TestRun.target_url.ilike(like), m.TestRun.message.ilike(like)))
@@ -181,9 +203,11 @@ def list_runs(
     return db.scalars(stmt.limit(limit).offset(offset)).all(), total
 
 
-def runs_since(db: Session, since: datetime) -> Sequence[m.TestRun]:
+def runs_since(db: Session, since: datetime, user_id: int) -> Sequence[m.TestRun]:
     return db.scalars(
-        select(m.TestRun).where(m.TestRun.created_at >= since, m.TestRun.status.in_(FINISHED)).order_by(m.TestRun.created_at.asc())
+        select(m.TestRun)
+        .where(m.TestRun.user_id == user_id, m.TestRun.created_at >= since, m.TestRun.status.in_(FINISHED))
+        .order_by(m.TestRun.created_at.asc())
     ).all()
 
 
@@ -197,25 +221,36 @@ def add_results(db: Session, run_id: int, rows: list[dict[str, Any]]) -> None:
     db.flush()
 
 
-def get_result(db: Session, result_id: int) -> m.TestResult | None:
-    return db.get(m.TestResult, result_id)
+def get_result(db: Session, result_id: int, user_id: int | None = None) -> m.TestResult | None:
+    stmt = select(m.TestResult).join(m.TestRun).where(m.TestResult.id == result_id)
+    if user_id is not None:
+        stmt = stmt.where(m.TestRun.user_id == user_id)
+    return db.scalar(stmt)
 
 
-def durations_for_runs(db: Session, run_ids: list[int]) -> dict[int, list[float]]:
+def durations_for_runs(db: Session, run_ids: list[int], user_id: int | None = None) -> dict[int, list[float]]:
     if not run_ids:
         return {}
     out: dict[int, list[float]] = {rid: [] for rid in run_ids}
-    rows = db.execute(
-        select(m.TestResult.run_id, m.TestResult.duration_s).where(m.TestResult.run_id.in_(run_ids), m.TestResult.outcome != "skipped")
-    ).all()
+    stmt = (
+        select(m.TestResult.run_id, m.TestResult.duration_s)
+        .join(m.TestRun)
+        .where(m.TestResult.run_id.in_(run_ids), m.TestResult.outcome != "skipped")
+    )
+    if user_id is not None:
+        stmt = stmt.where(m.TestRun.user_id == user_id)
+    rows = db.execute(stmt).all()
     for rid, dur in rows:
         out[rid].append(float(dur or 0.0))
     return out
 
 
-def outcome_history(db: Session, last_runs: int = 30) -> dict[str, list[str]]:
+def outcome_history(db: Session, last_runs: int = 30, user_id: int | None = None) -> dict[str, list[str]]:
     """nodeid -> outcomes in chronological order across the most recent finished runs."""
-    run_ids = db.scalars(select(m.TestRun.id).where(m.TestRun.status.in_(FINISHED)).order_by(m.TestRun.id.desc()).limit(last_runs)).all()
+    stmt = select(m.TestRun.id).where(m.TestRun.status.in_(FINISHED))
+    if user_id is not None:
+        stmt = stmt.where(m.TestRun.user_id == user_id)
+    run_ids = db.scalars(stmt.order_by(m.TestRun.id.desc()).limit(last_runs)).all()
     if not run_ids:
         return {}
     rows = db.execute(
@@ -230,31 +265,36 @@ def outcome_history(db: Session, last_runs: int = 30) -> dict[str, list[str]]:
 
 
 # ----------------------------- performance runs ----------------------------
-def create_perf_run(db: Session, **fields: Any) -> m.PerfRun:
+def create_perf_run(db: Session, user_id: int, **fields: Any) -> m.PerfRun:
+    fields["user_id"] = user_id
     perf = m.PerfRun(**fields)
     db.add(perf)
     db.flush()
     return perf
 
 
-def list_perf_runs(db: Session, limit: int = 20) -> Sequence[m.PerfRun]:
-    return db.scalars(select(m.PerfRun).order_by(m.PerfRun.id.desc()).limit(limit)).all()
+def list_perf_runs(db: Session, user_id: int, limit: int = 20) -> Sequence[m.PerfRun]:
+    return db.scalars(select(m.PerfRun).where(m.PerfRun.user_id == user_id).order_by(m.PerfRun.id.desc()).limit(limit)).all()
 
 
-def get_perf_run(db: Session, perf_id: int) -> m.PerfRun | None:
-    return db.get(m.PerfRun, perf_id)
+def get_perf_run(db: Session, perf_id: int, user_id: int | None = None) -> m.PerfRun | None:
+    stmt = select(m.PerfRun).where(m.PerfRun.id == perf_id)
+    if user_id is not None:
+        stmt = stmt.where(m.PerfRun.user_id == user_id)
+    return db.scalar(stmt)
 
 
 # ----------------------------- AI history ----------------------------------
-def create_analysis(db: Session, **fields: Any) -> m.AIAnalysis:
+def create_analysis(db: Session, user_id: int, **fields: Any) -> m.AIAnalysis:
+    fields["user_id"] = user_id
     obj = m.AIAnalysis(**fields)
     db.add(obj)
     db.flush()
     return obj
 
 
-def list_analyses(db: Session, kind: str | None = None, limit: int = 50) -> Sequence[m.AIAnalysis]:
-    stmt = select(m.AIAnalysis).order_by(m.AIAnalysis.id.desc()).limit(limit)
+def list_analyses(db: Session, user_id: int, kind: str | None = None, limit: int = 50) -> Sequence[m.AIAnalysis]:
+    stmt = select(m.AIAnalysis).where(m.AIAnalysis.user_id == user_id).order_by(m.AIAnalysis.id.desc()).limit(limit)
     if kind:
         stmt = stmt.where(m.AIAnalysis.kind == kind)
     return db.scalars(stmt).all()

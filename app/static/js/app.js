@@ -715,6 +715,7 @@ async function route() {
 function showLogin() {
   state.user = null; resetView();
   $("#app").hidden = true; $("#login").hidden = false; $("#detail").open && $("#detail").close();
+  $("#login-form").hidden = false; $("#register-form").hidden = true;
   $("#login-user").focus();
 }
 
@@ -733,6 +734,24 @@ $("#login-form").addEventListener("submit", async (e) => {
   try {
     const r = await api("/api/auth/login", { method: "POST", body: { username: $("#login-user").value, password: $("#login-pass").value } });
     $("#login-pass").value = ""; await showApp(r.username);
+  } catch (x) { err.textContent = x.message; err.hidden = false; }
+});
+$("#show-register").addEventListener("click", () => {
+  $("#login-form").hidden = true; $("#register-form").hidden = false; $("#register-error").hidden = true; $("#register-user").focus();
+});
+$("#show-login").addEventListener("click", showLogin);
+$("#register-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const err = $("#register-error"); err.hidden = true;
+  const username = $("#register-user").value.trim();
+  const password = $("#register-pass").value;
+  const confirmPassword = $("#register-confirm").value;
+  if (password !== confirmPassword) { err.textContent = "Passwords do not match."; err.hidden = false; return; }
+  try {
+    await api("/api/auth/register", { method: "POST", body: { username, password, confirm_password: confirmPassword } });
+    const login = await api("/api/auth/login", { method: "POST", body: { username, password } });
+    $("#register-pass").value = ""; $("#register-confirm").value = ""; await showApp(login.username);
+    toast("Account created", "ok");
   } catch (x) { err.textContent = x.message; err.hidden = false; }
 });
 $("#logout").addEventListener("click", async () => { try { await api("/api/auth/logout", { method: "POST" }); } catch (e) { /* ignore */ } showLogin(); });

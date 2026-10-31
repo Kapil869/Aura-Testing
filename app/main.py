@@ -31,7 +31,10 @@ def _ensure_admin(settings) -> None:
     from app.db.database import session_scope
 
     with session_scope() as db:
-        if repo.count_users(db):
+        existing = repo.get_user(db, settings.admin_username)
+        if existing:
+            existing.role = "admin"
+            repo.migrate_legacy_ownership(db, settings.admin_username)
             return
         password = settings.admin_password
         generated = not password
@@ -39,7 +42,8 @@ def _ensure_admin(settings) -> None:
             import secrets
 
             password = secrets.token_urlsafe(12)
-        repo.create_user(db, settings.admin_username, hash_password(password))
+        repo.create_user(db, settings.admin_username, hash_password(password), role="admin")
+        repo.migrate_legacy_ownership(db, settings.admin_username)
     if generated:
         settings.data_dir.mkdir(parents=True, exist_ok=True)
         cred_file = settings.data_dir / "initial_admin_credentials.txt"
@@ -76,6 +80,8 @@ def create_app() -> FastAPI:
     app = FastAPI(title="API Testing Dashboard", version="1.0.0", lifespan=lifespan)
     app.state.settings = settings
     app.state.login_limiter = LoginRateLimiter(settings.login_max_attempts, settings.login_window_seconds)
+    app.state.registration_limiter = LoginRateLimiter(settings.registration_max_attempts, settings.registration_window_seconds)
+    app.state.run_limiter = LoginRateLimiter(settings.run_max_attempts, settings.run_window_seconds)
 
     @app.middleware("http")
     async def security_headers(request: Request, call_next):

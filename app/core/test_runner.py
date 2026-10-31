@@ -157,7 +157,7 @@ def execute_suite(run_id: int, suite_key: str, target_url: str, settings: Settin
     """Worker body: runs in a background thread and records everything in the DB."""
     started = time.perf_counter()
     with session_scope() as db:
-        run = repo.get_run(db, run_id)
+        run = repo.get_run_for_worker(db, run_id)
         if run is None:
             return
         run.status, run.started_at = "running", utcnow()
@@ -201,7 +201,7 @@ def execute_suite(run_id: int, suite_key: str, target_url: str, settings: Settin
 
     counts = summarize(rows)
     with session_scope() as db:
-        run = repo.get_run(db, run_id)
+        run = repo.get_run_for_worker(db, run_id)
         if run is None:
             return
         repo.add_results(db, run_id, rows)

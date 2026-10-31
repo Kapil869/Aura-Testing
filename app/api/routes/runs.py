@@ -15,6 +15,7 @@ from app.core.security import UrlBlocked, evaluate_url
 from app.core.test_runner import SUITES
 from app.db import repository as repo
 from app.db.database import get_db
+from app.db.models import User
 
 router = APIRouter(prefix="/api", tags=["runs"], dependencies=[Depends(current_user)])
 
@@ -36,6 +37,7 @@ def list_runs(
     limit: int = Query(25, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
+    user: User = Depends(current_user),
 ):
     def parse(value: str | None):
         if not value:
@@ -47,6 +49,7 @@ def list_runs(
 
     items, total = repo.list_runs(
         db,
+        user.id,
         q=q,
         status=status,
         suite=suite,
@@ -62,18 +65,23 @@ def list_runs(
 
 @router.post("/runs", status_code=202)
 def start_run(
-    body: RunIn, request: Request, db: Session = Depends(get_db), cfg: Settings = Depends(get_cfg), user: str = Depends(current_user)
+    body: RunIn, request: Request, db: Session = Depends(get_db), cfg: Settings = Depends(get_cfg), user: User = Depends(current_user)
 ):
+    key = f"{user.id}:{request.client.host if request.client else 'unknown'}"
+    limiter = request.app.state.run_limiter
+    if limiter.blocked(key):
+        raise HTTPException(429, "Too many test executions. Try again later.")
+    limiter.record_failure(key)
     if body.suite not in SUITES:
         raise HTTPException(422, f"Unknown suite '{body.suite}'. Allowed: {', '.join(SUITES)}.")
     if not cfg.enable_demo_api and not body.environment_id and not cfg.test_target_url:
         raise HTTPException(409, "The demo API is disabled; choose an environment or set TEST_TARGET_URL.")
-    if repo.count_active_runs(db) >= cfg.max_active_runs:
+    if repo.count_active_runs(db, user.id) >= cfg.max_active_runs or repo.count_active_runs(db) >= cfg.max_active_runs:
         raise HTTPException(429, f"Too many runs queued or running (limit {cfg.max_active_runs}). Wait for one to finish.")
 
     external_ok = body.authorized_external
     if body.environment_id:
-        env = repo.get_environment(db, body.environment_id)
+        env = repo.get_environment(db, body.environment_id, user.id)
         if not env:
             raise HTTPException(404, "Environment not found.")
         target, external_ok = env.base_url, body.authorized_external and env.allow_external
@@ -84,23 +92,25 @@ def start_run(
     except UrlBlocked as exc:
         raise HTTPException(400, str(exc))
 
-    run = repo.create_run(db, suite=body.suite, status="queued", target_url=target, environment_id=body.environment_id, triggered_by=user)
+    run = repo.create_run(
+        db, user.id, suite=body.suite, status="queued", target_url=target, environment_id=body.environment_id, triggered_by=user.username
+    )
     db.commit()
     request.app.state.run_manager.submit(run.id, body.suite, target.rstrip("/"))
     return ser_run(run)
 
 
 @router.get("/runs/{run_id}")
-def get_run(run_id: int, db: Session = Depends(get_db)):
-    run = repo.get_run(db, run_id)
+def get_run(run_id: int, db: Session = Depends(get_db), user: User = Depends(current_user)):
+    run = repo.get_run(db, run_id, user.id)
     if not run:
         raise HTTPException(404, "Run not found.")
     return ser_run(run, with_results=True)
 
 
 @router.delete("/runs/{run_id}", status_code=204)
-def delete_run(run_id: int, db: Session = Depends(get_db)):
-    run = repo.get_run(db, run_id)
+def delete_run(run_id: int, db: Session = Depends(get_db), user: User = Depends(current_user)):
+    run = repo.get_run(db, run_id, user.id)
     if not run:
         raise HTTPException(404, "Run not found.")
     if run.status in ("queued", "running"):
@@ -110,8 +120,8 @@ def delete_run(run_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/results/{result_id}")
-def get_result(result_id: int, db: Session = Depends(get_db)):
-    res = repo.get_result(db, result_id)
+def get_result(result_id: int, db: Session = Depends(get_db), user: User = Depends(current_user)):
+    res = repo.get_result(db, result_id, user.id)
     if not res:
         raise HTTPException(404, "Result not found.")
     return ser_result(res)

@@ -19,13 +19,20 @@ class User(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     username: Mapped[str] = mapped_column(String(80), unique=True, index=True)
     password_hash: Mapped[str] = mapped_column(String(255))
+    role: Mapped[str] = mapped_column(String(20), default="user", index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    environments: Mapped[list["Environment"]] = relationship(back_populates="user")
+    saved_requests: Mapped[list["SavedRequest"]] = relationship(back_populates="user")
+    test_runs: Mapped[list["TestRun"]] = relationship(back_populates="user")
+    perf_runs: Mapped[list["PerfRun"]] = relationship(back_populates="user")
+    ai_analyses: Mapped[list["AIAnalysis"]] = relationship(back_populates="user")
 
 
 class Environment(Base):
     __tablename__ = "environments"
     id: Mapped[int] = mapped_column(primary_key=True)
-    name: Mapped[str] = mapped_column(String(60), unique=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(60))
     base_url: Mapped[str] = mapped_column(String(2048))
     description: Mapped[str] = mapped_column(String(500), default="")
     allow_external: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -34,11 +41,13 @@ class Environment(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
 
     requests: Mapped[list["SavedRequest"]] = relationship(back_populates="environment")
+    user: Mapped[User] = relationship(back_populates="environments")
 
 
 class SavedRequest(Base):
     __tablename__ = "saved_requests"
     id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     name: Mapped[str] = mapped_column(String(120))
     method: Mapped[str] = mapped_column(String(10))
     url: Mapped[str] = mapped_column(String(2048))
@@ -55,12 +64,14 @@ class SavedRequest(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
 
     environment: Mapped[Environment | None] = relationship(back_populates="requests")
+    user: Mapped[User] = relationship(back_populates="saved_requests")
 
 
 class TestRun(Base):
     __tablename__ = "test_runs"
     __test__ = False  # tell pytest this is not a test class
     id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     suite: Mapped[str] = mapped_column(String(60), index=True)
     status: Mapped[str] = mapped_column(String(20), index=True, default="queued")
     target_url: Mapped[str] = mapped_column(String(2048), default="")
@@ -80,6 +91,7 @@ class TestRun(Base):
     output_tail: Mapped[str] = mapped_column(Text, default="")
 
     results: Mapped[list["TestResult"]] = relationship(back_populates="run", cascade="all, delete-orphan", order_by="TestResult.id")
+    user: Mapped[User] = relationship(back_populates="test_runs")
 
 
 class TestResult(Base):
@@ -104,6 +116,7 @@ Index("ix_results_node_run", TestResult.nodeid, TestResult.run_id)
 class PerfRun(Base):
     __tablename__ = "perf_runs"
     id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     target_url: Mapped[str] = mapped_column(String(2048))
     method: Mapped[str] = mapped_column(String(10))
     total_requests: Mapped[int] = mapped_column(Integer)
@@ -119,14 +132,23 @@ class PerfRun(Base):
     metrics_json: Mapped[str] = mapped_column(Text, default="{}")
     note: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+    user: Mapped[User] = relationship(back_populates="perf_runs")
 
 
 class AIAnalysis(Base):
     __tablename__ = "ai_analyses"
     id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     kind: Mapped[str] = mapped_column(String(30), index=True)
     provider: Mapped[str] = mapped_column(String(60))  # "rules" or model name
     input_summary: Mapped[str] = mapped_column(Text, default="")
     output_json: Mapped[str] = mapped_column(Text, default="{}")
     run_id: Mapped[int | None] = mapped_column(ForeignKey("test_runs.id", ondelete="SET NULL"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+    user: Mapped[User] = relationship(back_populates="ai_analyses")
+
+
+Index("uq_environment_user_name", Environment.user_id, Environment.name, unique=True)
+Index("ix_test_runs_user_created", TestRun.user_id, TestRun.created_at)
+Index("ix_perf_runs_user_created", PerfRun.user_id, PerfRun.created_at)
+Index("ix_ai_analyses_user_created", AIAnalysis.user_id, AIAnalysis.created_at)

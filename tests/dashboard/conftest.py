@@ -34,6 +34,8 @@ def live_dashboard(tmp_path_factory):
             "AI_PROVIDER": "none",
             "AI_API_KEY": "",
             "LOGIN_MAX_ATTEMPTS": "50",
+            "REGISTRATION_MAX_ATTEMPTS": "50",
+            "RUN_MAX_ATTEMPTS": "50",
         }
     )
     from app.config import get_settings

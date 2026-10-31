@@ -2,10 +2,14 @@
 .env
 data/*
 !data/.gitkeep
+data/initial_admin_credentials.txt
 reports/*
 !reports/.gitkeep
 *.db
 *.sqlite3
+*.sqlite
+*.secret
+*credentials*
 
 # python
 .venv/
@@ -16,6 +20,8 @@ __pycache__/
 .ruff_cache/
 .coverage
 htmlcov/
+*.pem
+*.key
 
 # editors / OS
 .vscode/
