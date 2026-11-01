@@ -731,8 +731,10 @@ async function showApp(username) {
 $("#login-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const err = $("#login-error"); err.hidden = true;
+  const username = $("#login-user").value.trim().replace(/^username:\s*/i, "");
+  const password = $("#login-pass").value.replace(/^password:\s*/i, "");
   try {
-    const r = await api("/api/auth/login", { method: "POST", body: { username: $("#login-user").value, password: $("#login-pass").value } });
+    const r = await api("/api/auth/login", { method: "POST", body: { username, password } });
     $("#login-pass").value = ""; await showApp(r.username);
   } catch (x) { err.textContent = x.message; err.hidden = false; }
 });
