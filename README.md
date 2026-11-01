@@ -40,6 +40,10 @@ Prerequisite: Python 3.11 or newer (from python.org, "Add to PATH" ticked).
 
 macOS/Linux: `python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt && scripts/run_dashboard.sh`.
 
+### Render deployment
+
+The included `render.yaml` configures Render to install the requirements and bind Uvicorn to Render's `$PORT`. For production, set `APP_ENV=production`, a strong `SECRET_KEY`, `ADMIN_PASSWORD`, and a persistent PostgreSQL `DATABASE_URL` in the Render environment. Set `COOKIE_SECURE=true` when serving over HTTPS. If no admin password is configured, the generated password is only written to the service's filesystem and may not be available after a restart, so configure it before the first deploy.
+
 ## Running the automated tests
 
 ```
